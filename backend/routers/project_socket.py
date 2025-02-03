@@ -38,8 +38,11 @@ class ProjectStatusResponse(BaseModel):
     project_id: int
     sandbox_statuses: Dict[int, SandboxStatus]
     tunnels: Dict[int, str]
-    file_paths: Optional[List[str]] = None
+    backend_file_paths: Optional[List[str]] = None
+    frontend_file_paths: Optional[List[str]] = None
     git_log: Optional[str] = None
+    frontend_tunnel: Optional[str] = None
+
 
 class ChatUpdateResponse(BaseModel):
     for_type: str = "chat_update"
@@ -112,8 +115,11 @@ class ProjectManager:
         self.sandboxes: Dict[int, BaseSandbox] = {}
 
         self.tunnels: Dict[int, str] = {}
-        self.file_paths: Optional[List[str]] = None
+        self.backend_file_paths: Optional[List[str]] = None
+        self.frontend_file_paths: Optional[List[str]] = None
         self.git_log: Optional[str] = None
+        
+        self.frontend_tunnel: Optional[str] = None
 
         self.last_activity = datetime.datetime.now()
 
@@ -196,9 +202,14 @@ class ProjectManager:
             
             # Read file paths and git log if backend service
             if service.service_type == ServiceType.BACKEND:
-                self.file_paths = await sandbox.get_file_paths()
+                self.backend_file_paths = await sandbox.get_file_paths()
                 self.git_log = await sandbox.read_file_contents("/app/git.log", does_not_exist_ok=True)
-            
+            elif service.service_type == ServiceType.FRONTEND:
+                self.frontend_file_paths = await sandbox.get_file_paths()
+                self.tunnels[service.id] = sandbox.service.preview_url
+                self.frontend_tunnel = sandbox.service.preview_url
+                
+                
             print("emit  : ", await self._get_project_status())
             await self.emit_project(await self._get_project_status())
 
@@ -223,9 +234,12 @@ class ProjectManager:
             project_id=self.project_id,
             sandbox_statuses=self.sandbox_statuses.copy(),
             tunnels=self.tunnels,
-            file_paths=self.file_paths,
+            backend_file_paths=self.backend_file_paths,
+            frontend_file_paths=self.frontend_file_paths,
             git_log=self.git_log,
+            frontend_tunnel=self.frontend_tunnel,
         )
+
 
     async def add_chat_socket(self, chat_id: int, websocket: WebSocket):
         self.last_activity = datetime.datetime.now()
@@ -323,7 +337,7 @@ class ProjectManager:
 
         async for partial_chunk in agent.step(
             all_messages,
-            self.file_paths,
+            self.backend_file_paths,  # send backend file paths
             self.git_log
         ):
             # Collect partial text
@@ -353,26 +367,55 @@ class ProjectManager:
         # 5) Now apply final diffs + lint + commit
         self.sandbox_statuses[backend_service.id] = SandboxStatus.WORKING_APPLYING
         await self.emit_project(await self._get_project_status())
+        await diff_applier.apply()
+        
+        commit_msg = await write_commit_message(total_content)
+        await agent.sandbox.commit_changes(commit_msg)
+        
+        for svc in project.services:
+            if svc.service_type == ServiceType.FRONTEND and svc.id in self.sandboxes:
+                frontend_sandbox = self.sandboxes[svc.id]
+                frontend_diff_applier = DiffApplier(frontend_sandbox)
+                frontend_diff_applier.ingest(total_content)
+                await frontend_diff_applier.apply()
+                self.sandbox_statuses[svc.id] = SandboxStatus.READY
+                # (7) Refresh file trees from both services
+        if backend_service.id in self.sandboxes:
+            self.backend_file_paths = await self.sandboxes[backend_service.id].get_file_paths()
+        for svc in project.services:
+            if svc.service_type == ServiceType.FRONTEND and svc.id in self.sandboxes:
+                self.frontend_file_paths = await self.sandboxes[svc.id].get_file_paths()
 
-        # Do lint + commit
-        follow_ups = None
-        try:
-            await _apply_and_lint_and_commit(diff_applier, sandbox)
-            # Get follow ups
-            follow_ups = await agent.suggest_follow_ups(all_messages + [assistant_msg])
-        except Exception as e:
-            print("Error applying diffs or follow ups:", e)
+        await self.emit_project(await self._get_project_status())
 
-        # 6) Emit final chat update
         await self.emit_chat(
             chat_id,
             ChatUpdateResponse(
                 chat_id=chat_id,
                 message=_db_message_to_message(db_assistant_msg),
-                follow_ups=follow_ups,
+                follow_ups=await agent.suggest_follow_ups(all_messages + [assistant_msg]),
                 navigate_to=agent.working_page,
             ),
-        )
+        )        
+        # Do lint + commit
+        # follow_ups = None
+        # try:
+        #     await _apply_and_lint_and_commit(diff_applier, sandbox)
+        #     # Get follow ups
+        #     follow_ups = await agent.suggest_follow_ups(all_messages + [assistant_msg])
+        # except Exception as e:
+        #     print("Error applying diffs or follow ups:", e)
+
+        # # 6) Emit final chat update
+        # await self.emit_chat(
+        #     chat_id,
+        #     ChatUpdateResponse(
+        #         chat_id=chat_id,
+        #         message=_db_message_to_message(db_assistant_msg),
+        #         follow_ups=follow_ups,
+        #         navigate_to=agent.working_page,
+        #     ),
+        # )
 
         # 7) Reset status to READY
         self.sandbox_statuses[backend_service.id] = SandboxStatus.READY

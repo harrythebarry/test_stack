@@ -20,7 +20,8 @@ export default function WorkspacePage({ chatId }) {
   const [chatTitle, setChatTitle] = useState('New Chat');
   const [projectPreviewUrl, setProjectPreviewUrl] = useState(null);
   const [projectPreviewPath, setProjectPreviewPath] = useState('/');
-  const [projectFileTree, setProjectFileTree] = useState([]);
+  const [backendFileTree, setBackendFileTree] = useState([]);
+  const [frontendFileTree, setFrontendFileTree] = useState([]);
   const [projectStackPackId, setProjectStackPackId] = useState(null);
   const [suggestedFollowUps, setSuggestedFollowUps] = useState([]);
   const [previewHash, setPreviewHash] = useState(1);
@@ -80,22 +81,33 @@ export default function WorkspacePage({ chatId }) {
           }
         };
 
+        // In the handleStatus callback, update to process new fields:
         const handleStatus = (data) => {
-          setStatus(data.sandbox_status);
-          if (data.tunnels) {
-            // OLD CODE:
-            // setProjectPreviewUrl(data.tunnels[3000]);
-            // NEW CODE:
-            const ports = Object.keys(data.tunnels);
-            if (ports.length > 0) {
-              // pick first port, or do find for 3000 if you want
-              setProjectPreviewUrl(data.tunnels[ports[0]]);
+          // (Assuming data.sandbox_statuses may be an object – you might choose the primary status from the backend service)
+          // For preview URL, use the dedicated frontend_tunnel if provided:
+          if (data.frontend_tunnel) {
+            setProjectPreviewUrl(data.frontend_tunnel);
+          } else if (data.tunnels) {
+            const keys = Object.keys(data.tunnels);
+            if (keys.length > 0) {
+              setProjectPreviewUrl(data.tunnels[keys[0]]);
             } else {
               setProjectPreviewUrl(null);
             }
           }
-          if (data.file_paths) {
-            setProjectFileTree(data.file_paths);
+          if (data.backend_file_paths) {
+            setBackendFileTree(data.backend_file_paths);
+          }
+          if (data.frontend_file_paths) {
+            setFrontendFileTree(data.frontend_file_paths);
+          }
+          // Optionally update overall status – for simplicity, pick the backend status (if available)
+          if (data.sandbox_statuses && Object.values(data.sandbox_statuses).length > 0) {
+            // For example, pick the backend service status:
+            const backendStatus = data.sandbox_statuses[
+              Object.keys(data.sandbox_statuses)[0]
+            ];
+            setStatus(backendStatus);
           }
         };
 
@@ -250,7 +262,8 @@ export default function WorkspacePage({ chatId }) {
         setChatTitle('New Chat');
         setMessages([]);
         setProjectPreviewUrl(null);
-        setProjectFileTree([]);
+        setBackendFileTree([]);
+        setFrontendFileTree([]);
         setStatus('NEW_CHAT');
       }
     })();
@@ -344,7 +357,8 @@ export default function WorkspacePage({ chatId }) {
                 projectPreviewPath={projectPreviewPath}
                 setProjectPreviewPath={setProjectPreviewPath}
                 projectPreviewHash={previewHash}
-                projectFileTree={projectFileTree}
+                backendFileTree={backendFileTree}
+                frontendFileTree={frontendFileTree}
                 project={projects.find((p) => +p.id === +projectId)}
                 chatId={chatId}
                 status={status}
@@ -380,11 +394,13 @@ export default function WorkspacePage({ chatId }) {
               projectPreviewPath={projectPreviewPath}
               setProjectPreviewPath={setProjectPreviewPath}
               projectPreviewHash={previewHash}
-              projectFileTree={projectFileTree}
+              backendFileTree={backendFileTree}  
+              frontendFileTree={frontendFileTree} 
               project={projects.find((p) => +p.id === +projectId)}
               chatId={chatId}
               status={status}
             />
+
           </Splitter>
         )}
       </div>

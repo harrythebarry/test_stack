@@ -159,7 +159,7 @@ const FileContent = ({ selectedFile, isLoading, fileContent }) => {
   );
 };
 
-export function FilesTab({ projectFileTree, project }) {
+export function FilesTab({ fileTree: fileTreeProp, project }) {
   const { team } = useUser();
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileContent, setFileContent] = useState('');
@@ -168,9 +168,10 @@ export function FilesTab({ projectFileTree, project }) {
   const [isZipping, setIsZipping] = useState(false);
   const { toast } = useToast();
 
-  const fileTree = useMemo(() => {
+  // Rename memoized fileTree to avoid conflict
+  const memoizedFileTree = useMemo(() => {
     const tree = {};
-    projectFileTree.forEach((path) => {
+    fileTreeProp.forEach((path) => {
       if (!path.startsWith('/app/')) return;
 
       const relativePath = path.substring(5);
@@ -187,7 +188,7 @@ export function FilesTab({ projectFileTree, project }) {
       });
     });
     return tree;
-  }, [projectFileTree]);
+  }, [fileTreeProp]);
 
   const handleFileSelect = async (filename) => {
     if (!filename || !team || !project) return;
@@ -259,7 +260,7 @@ export function FilesTab({ projectFileTree, project }) {
           >
             <div className="h-full border-r flex-shrink-0">
               <FileTree
-                fileTree={fileTree}
+                fileTree={memoizedFileTree}
                 selectedFile={selectedFile}
                 handleFileSelect={handleFileSelect}
                 project={project}
@@ -278,3 +279,5 @@ export function FilesTab({ projectFileTree, project }) {
     </div>
   );
 }
+
+

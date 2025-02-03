@@ -31,7 +31,7 @@ if [ -f /frontend/package.json ]; then
     cat /frontend/package.json
     ls -l /frontend
 fi
-
+cd /frontend
 git config --global user.email 'bot@sparkstack.app'
 git config --global user.name 'Spark Stack Bot'
 git config --global init.defaultBranch main

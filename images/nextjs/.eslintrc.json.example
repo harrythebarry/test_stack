@@ -1,0 +1,21 @@
+{
+  "extends": "next",
+  "env": {
+    "es6": true,
+    "browser": true,
+    "node": true
+  },
+  "rules": {
+    "no-undef": "error",
+    "no-unused-vars": "off",
+    "no-console": "off",
+    "no-debugger": "off",
+    "react/display-name": "warn",
+    "react-hooks/exhaustive-deps": "warn",
+    "react/no-children-prop": "warn",
+    "@next/next/no-img-element": "off",
+    "react/prop-types": "off",
+    "react/no-unescaped-entities": "off",
+    "@next/next/no-page-custom-font": "off"
+  }
+}

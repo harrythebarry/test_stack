@@ -1,0 +1,36 @@
+FROM python:3.11
+
+WORKDIR /
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    zip \
+    tree \
+    unzip && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN node --version && npm --version
+
+RUN npx --yes create-next-app@15.1.6 frontend --js --tailwind --no-eslint --src-dir src --app --no-turbopack --yes && \
+    cd frontend && \
+    npm install --save-dev eslint eslint-config-next --force && \
+    npm run build
+
+RUN curl -o /frontend/next.config.mjs https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/nextjs/next.config.mjs.example && \
+    curl -o /frontend/.eslintrc.json https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/nextjs/.eslintrc.json.example && \
+    curl -o /frontend/public/sketch.js https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/p5/public/sketch.js && \
+    curl -o /frontend/public/helpers.js https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/p5/public/helpers.js && \
+    curl -o /frontend/public/objects.js https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/p5/public/objects.js && \
+    curl -o /frontend/src/app/globals.css https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/p5/src/app/globals.css && \
+    curl -o /frontend/src/app/layout.js https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/p5/src/app/layout.js && \
+    curl -o /frontend/src/app/page.js https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/p5/src/app/page.js && \
+    rm -rf /frontend/public/*.svg
+
+RUN cat /frontend/package.json
+
+EXPOSE 3000

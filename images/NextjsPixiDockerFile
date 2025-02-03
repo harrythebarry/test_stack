@@ -1,0 +1,35 @@
+FROM python:3.11
+
+WORKDIR /
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    zip \
+    tree \
+    unzip && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN node --version && npm --version
+
+RUN npx --yes create-next-app@15.1.6 frontend --js --tailwind --no-eslint --src-dir src --app --no-turbopack --yes && \
+    cd frontend && \
+    npm install pixi.js @pixi/mesh-extras raw-loader --force && \
+    npm install --save-dev eslint eslint-config-next --force && \
+    npm run build
+
+RUN curl -o /frontend/next.config.mjs https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/nextjs/next.config.mjs.example && \
+    curl -o /frontend/.eslintrc.json https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/nextjs/.eslintrc.json.example && \
+    curl -o /frontend/src/app/layout.js https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/pixi/src/app/layout.js && \
+    curl -o /frontend/src/app/page.js https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/pixi/src/app/page.js && \
+    mkdir -p /frontend/src/app/pixi && \
+    curl -o /frontend/src/app/pixi/app.js https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/pixi/src/app/pixi/app.js && \
+    rm -rf /frontend/public/*.svg
+
+RUN cat /frontend/package.json
+
+EXPOSE 3000

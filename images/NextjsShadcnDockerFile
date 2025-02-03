@@ -1,0 +1,32 @@
+FROM python:3.11
+
+WORKDIR /
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    zip \
+    tree \
+    unzip && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN node --version && npm --version
+
+RUN npx --yes create-next-app@15.1.6 frontend --js --tailwind --no-eslint --src-dir src --app --no-turbopack --yes  && \
+    cd frontend && \
+    npm install lucide-react axios recharts @radix-ui/react-icons tailwind-merge react-hook-form --force && \
+    npm install --save-dev eslint eslint-config-next --force && \
+    (echo "\n\n\n" | npx shadcn@2.1.8 init --defaults --force --yes) && \
+    (echo "\n\n\n" | npx shadcn@2.1.8 add --yes --all) && \
+    npm run build
+
+RUN curl -o /frontend/next.config.mjs https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/nextjs/next.config.mjs.example && \
+    curl -o /frontend/.eslintrc.json https://raw.githubusercontent.com/sshh12/prompt-stack/refs/heads/main/images/nextjs/.eslintrc.json.example
+
+RUN cat /frontend/package.json
+
+EXPOSE 3000

@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.p5Canvas {
+  display: block !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  object-fit: contain !important;
+}

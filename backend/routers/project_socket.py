@@ -1,5 +1,3 @@
-# backend/routers/project_socket.py
-
 from fastapi import APIRouter, WebSocket, WebSocketException, WebSocketDisconnect
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
@@ -80,19 +78,23 @@ async def _apply_and_lint_and_commit(diff_applier: DiffApplier, sandbox: BaseSan
     Called after we collect all partial diffs from the agent and finalize them.
     We do 'npm run lint', apply ESLint fixes, and commit.
     """
+    print("Starting lint and commit process.")
     _, has_lint_file = await asyncio.gather(
         diff_applier.apply(),
         sandbox.has_file("/app/frontend/.eslintrc.json"),
     )
     if has_lint_file:
+        print("Lint file detected, running 'npm run lint' command.")
         lint_output = await sandbox.run_command(
             "npm run lint", workdir="/app/frontend"
         )
-        print(lint_output)
+        print(f"Lint output: {lint_output}")
         if "Error:" in lint_output:
+            print("Lint errors detected, applying ESLint fixes.")
             await diff_applier.apply_eslint(lint_output)
 
     commit_msg = await write_commit_message(diff_applier.total_content)
+    print(f"Commit message generated: {commit_msg}")
     await sandbox.commit_changes(commit_msg)
 
 class ProjectManager:
@@ -102,6 +104,7 @@ class ProjectManager:
     """
 
     def __init__(self, db: Session, project_id: int):
+        print(f"Initializing ProjectManager for project {project_id}")
         self.db = db
         self.project_id = project_id
         self.chat_sockets: Dict[int, List[WebSocket]] = {}
@@ -129,6 +132,7 @@ class ProjectManager:
         """
         if len(self.chat_sockets) == 0:
             delta = datetime.datetime.now() - self.last_activity
+            print(f"Checking inactivity: {delta.total_seconds()} seconds since last activity.")
             return delta > datetime.timedelta(minutes=timeout_minutes)
         return False
 
@@ -136,7 +140,9 @@ class ProjectManager:
         """
         Forcefully close all websockets, kill all sandbox resources, etc.
         """
+        print("Killing all resources and closing websockets.")
         for service_id, sandbox in self.sandboxes.items():
+            print(f"Terminating sandbox for service {service_id}.")
             self.sandbox_statuses[service_id] = SandboxStatus.BUILDING
             await self.emit_project(await self._get_project_status())
 
@@ -149,8 +155,9 @@ class ProjectManager:
             for socket in sockets:
                 try:
                     close_tasks.append(socket.close())
+                    print("Closing websocket.")
                 except Exception:
-                    pass
+                    print("Error closing websocket.")
         if close_tasks:
             await asyncio.gather(*close_tasks)
 
@@ -165,12 +172,14 @@ class ProjectManager:
         """
         Kick off the background task that tries to manage the sandbox creation + readiness.
         """
+        print(f"Starting sandbox management for project {self.project_id}.")
         create_task(self._try_manage_sandboxes())
 
     async def _try_manage_sandboxes(self):
         """
         Repeatedly attempt to get+start the sandboxes for this project until success or error.
         """
+        print(f"Managing sandboxes for project {self.project_id}.")
         project = self.db.query(Project).filter(Project.id == self.project_id).first()
         if not project:
             print(f"Project {self.project_id} not found, aborting sandbox management.")
@@ -178,6 +187,7 @@ class ProjectManager:
 
         services = project.services
         for service in services:
+            print(f"Starting sandbox creation for service {service.id}.")
             self.sandbox_statuses[service.id] = SandboxStatus.BUILDING
             await self.emit_project(await self._get_project_status())
 
@@ -188,29 +198,30 @@ class ProjectManager:
         Create or get the sandbox for a specific service.
         """
         try:
-            # Pass the already loaded project instance
+            print(f"Managing sandbox for service {service.id} of type {service.service_type}.")
             project = self.db.query(Project).filter(Project.id == self.project_id).first()
             if not project:
                 print(f"Project {self.project_id} not found, aborting sandbox management.")
                 return
-            print("_manage_sandbox : ", service.service_type)
+
             sandbox = (await get_sandbox_for_project(project=project, create_if_missing=True, service_id=service.id))[0]
-            print("got sandbox : ", sandbox)
+            print(f"Got sandbox for service {service.id}: {sandbox}")
 
             self.sandboxes[service.id] = sandbox
             self.sandbox_statuses[service.id] = SandboxStatus.READY
-            
+            print(f"Sandbox for service {service.id} is now READY.")
+
             # Read file paths and git log if backend service
             if service.service_type == ServiceType.BACKEND:
+                print(f"Reading file paths and git log for backend service {service.id}.")
                 self.backend_file_paths = await sandbox.get_file_paths()
                 self.git_log = await sandbox.read_file_contents("/app/git.log", does_not_exist_ok=True)
             elif service.service_type == ServiceType.FRONTEND:
+                print(f"Reading file paths for frontend service {service.id}.")
                 self.frontend_file_paths = await sandbox.get_file_paths()
                 self.tunnels[service.id] = sandbox.service.preview_url
                 self.frontend_tunnel = sandbox.service.preview_url
-                
-                
-            print("emit  : ", await self._get_project_status())
+
             await self.emit_project(await self._get_project_status())
 
             # Assign sandbox to existing Agents
@@ -218,6 +229,7 @@ class ProjectManager:
                 agent.set_sandbox(sandbox)
 
         except SandboxNotReadyException:
+            print(f"Sandbox for service {service.id} is not ready, retrying.")
             self.sandbox_statuses[service.id] = SandboxStatus.BUILDING_WAITING
             await self.emit_project(await self._get_project_status())
             await asyncio.sleep(10)
@@ -230,6 +242,8 @@ class ProjectManager:
             create_task(self._manage_sandbox(service))
 
     async def _get_project_status(self) -> ProjectStatusResponse:
+        print(f"Retrieving project status for project {self.project_id}.")
+        print(f"the filepaths fro backend :{self.backend_file_paths} , the filepaths for frontend : {self.frontend_file_paths}")
         return ProjectStatusResponse(
             project_id=self.project_id,
             sandbox_statuses=self.sandbox_statuses.copy(),
@@ -240,12 +254,13 @@ class ProjectManager:
             frontend_tunnel=self.frontend_tunnel,
         )
 
-
     async def add_chat_socket(self, chat_id: int, websocket: WebSocket):
+        print(f"Adding websocket for chat {chat_id}.")
         self.last_activity = datetime.datetime.now()
         if chat_id not in self.chat_sockets:
             project = self.db.query(Project).filter(Project.id == self.project_id).first()
             if not project:
+                print(f"Project {self.project_id} not found, closing websocket.")
                 await websocket.close()
                 return
 
@@ -255,6 +270,7 @@ class ProjectManager:
                 None
             )
             if not backend_service:
+                print(f"Backend service not found for project {self.project_id}, closing websocket.")
                 await websocket.close(code=1008, reason="Backend service not found.")
                 return
 
@@ -269,16 +285,19 @@ class ProjectManager:
         await self.emit_project(await self._get_project_status())
 
     def remove_chat_socket(self, chat_id: int, websocket: WebSocket):
+        print(f"Removing websocket for chat {chat_id}.")
         try:
             self.chat_sockets[chat_id].remove(websocket)
         except ValueError:
             pass
         if len(self.chat_sockets[chat_id]) == 0:
+            print(f"All websockets removed for chat {chat_id}. Clearing data.")
             del self.chat_sockets[chat_id]
             del self.chat_agents[chat_id]
             del self.chat_users[chat_id]
 
     async def on_chat_message(self, chat_id: int, message: ChatMessage):
+        print(f"Received message from chat {chat_id}: {message.content}.")
         self.last_activity = datetime.datetime.now()
         async with self.lock:
             await self._handle_chat_message(chat_id, message)
@@ -287,33 +306,57 @@ class ProjectManager:
         """
         Actually handle the user's chat message: store to DB, run the agent, produce diffs, etc.
         """
+        print(f"Handling chat message for chat {chat_id}.")
         # Assuming interaction is with the backend sandbox
         project = self.db.query(Project).filter(Project.id == self.project_id).first()
         backend_service = next(
             (svc for svc in project.services if svc.service_type == ServiceType.BACKEND),
             None
         )
-        if not backend_service:
-            await self.emit_chat(chat_id, {"error": "Backend service not found."})
+        frontend_service = next(
+            (svc for svc in project.services if svc.service_type == ServiceType.FRONTEND),
+            None
+        )
+
+        if not backend_service and not frontend_service:
+            print(f"Neither Backend nor Frontend service found for project {self.project_id}.")
+            await self.emit_chat(chat_id, {"error": "Neither Backend nor Frontend service found."})
             return
 
-        sandbox = self.sandboxes.get(backend_service.id)
+        # Determine the active service and corresponding details
+        if backend_service:
+            service = backend_service
+            file_paths = self.backend_file_paths
+            git_log = self.git_log
+        elif frontend_service:
+            service = frontend_service
+            file_paths = self.frontend_file_paths
+            git_log = None  # Frontend may not require git_log
+            
+        print(f"So [PROJECT_SOCKET] : WE ARE GENERATING {service.service_type}")
+
+        # Get the sandbox for the identified service
+        sandbox = self.sandboxes.get(service.id)
         if not sandbox or getattr(sandbox, 'ready', False) is False:
-            self.sandbox_statuses[backend_service.id] = SandboxStatus.OFFLINE
+            print(f"Sandbox for service {service.id} is not running, emitting error.")
+            self.sandbox_statuses[service.id] = SandboxStatus.OFFLINE
             await self.emit_project(await self._get_project_status())
-            await self.emit_chat(chat_id, {"error": "Backend sandbox is not running."})
+            await self.emit_chat(chat_id, {"error": f"{service.service_type.value} sandbox is not running."})
             return
 
-        self.sandbox_statuses[backend_service.id] = SandboxStatus.WORKING
+        print(f"Sandbox for service {service.id} is ready. Proceeding with message processing.")
+        self.sandbox_statuses[service.id] = SandboxStatus.WORKING
         await self.emit_project(await self._get_project_status())
 
         # 1) Save user message
         db_msg = _message_to_db_message(message, chat_id)
+        print(f"Saving user message for chat {chat_id}.")
         self.db.add(db_msg)
         self.db.commit()
         self.db.refresh(db_msg)
 
         # 2) Emit user message update
+        print(f"Emitting user message update for chat {chat_id}.")
         await self.emit_chat(
             chat_id,
             ChatUpdateResponse(
@@ -323,6 +366,7 @@ class ProjectManager:
         )
 
         # 3) Run agent logic
+        print(f"Running agent logic for chat {chat_id}.")
         agent = self.chat_agents[chat_id]
         db_messages = (
             self.db.query(DbChatMessage)
@@ -337,8 +381,8 @@ class ProjectManager:
 
         async for partial_chunk in agent.step(
             all_messages,
-            self.backend_file_paths,  # send backend file paths
-            self.git_log
+            file_paths,  # send either backend or frontend file paths
+            git_log  # send git_log for backend, None for frontend
         ):
             # Collect partial text
             total_content += partial_chunk.delta_content
@@ -358,20 +402,20 @@ class ProjectManager:
         assistant_msg = ChatMessage(role="assistant", content=total_content)
         db_assistant_msg = _message_to_db_message(assistant_msg, chat_id)
 
-        project = self.db.query(Project).filter(Project.id == self.project_id).first()
-        project.modal_sandbox_last_used_at = datetime.datetime.now()
-
+        print(f"Saving assistant message for chat {chat_id}.")
         self.db.add(db_assistant_msg)
         self.db.commit()
 
         # 5) Now apply final diffs + lint + commit
-        self.sandbox_statuses[backend_service.id] = SandboxStatus.WORKING_APPLYING
+        print(f"Applying final diffs for service {service.id}.")
+        self.sandbox_statuses[service.id] = SandboxStatus.WORKING_APPLYING
         await self.emit_project(await self._get_project_status())
         await diff_applier.apply()
-        
+
         commit_msg = await write_commit_message(total_content)
+        print(f"Commit message generated for chat {chat_id}: {commit_msg}")
         await agent.sandbox.commit_changes(commit_msg)
-        
+
         for svc in project.services:
             if svc.service_type == ServiceType.FRONTEND and svc.id in self.sandboxes:
                 frontend_sandbox = self.sandboxes[svc.id]
@@ -379,13 +423,8 @@ class ProjectManager:
                 frontend_diff_applier.ingest(total_content)
                 await frontend_diff_applier.apply()
                 self.sandbox_statuses[svc.id] = SandboxStatus.READY
-                # (7) Refresh file trees from both services
-        if backend_service.id in self.sandboxes:
-            self.backend_file_paths = await self.sandboxes[backend_service.id].get_file_paths()
-        for svc in project.services:
-            if svc.service_type == ServiceType.FRONTEND and svc.id in self.sandboxes:
-                self.frontend_file_paths = await self.sandboxes[svc.id].get_file_paths()
 
+        print(f"Finalizing project status for chat {chat_id}.")
         await self.emit_project(await self._get_project_status())
 
         await self.emit_chat(
@@ -396,33 +435,13 @@ class ProjectManager:
                 follow_ups=await agent.suggest_follow_ups(all_messages + [assistant_msg]),
                 navigate_to=agent.working_page,
             ),
-        )        
-        # Do lint + commit
-        # follow_ups = None
-        # try:
-        #     await _apply_and_lint_and_commit(diff_applier, sandbox)
-        #     # Get follow ups
-        #     follow_ups = await agent.suggest_follow_ups(all_messages + [assistant_msg])
-        # except Exception as e:
-        #     print("Error applying diffs or follow ups:", e)
+        )
 
-        # # 6) Emit final chat update
-        # await self.emit_chat(
-        #     chat_id,
-        #     ChatUpdateResponse(
-        #         chat_id=chat_id,
-        #         message=_db_message_to_message(db_assistant_msg),
-        #         follow_ups=follow_ups,
-        #         navigate_to=agent.working_page,
-        #     ),
-        # )
-
-        # 7) Reset status to READY
-        self.sandbox_statuses[backend_service.id] = SandboxStatus.READY
-        # Re-pull file paths + git log
-        self.file_paths = await sandbox.get_file_paths()
-        self.git_log = await sandbox.read_file_contents("/app/git.log", does_not_exist_ok=True)
+        print(f"Resetting sandbox status to READY for service {service.id}.")
+        self.sandbox_statuses[service.id] = SandboxStatus.READY
         await self.emit_project(await self._get_project_status())
+
+
 
     async def emit_project(self, data: ProjectStatusResponse):
         """

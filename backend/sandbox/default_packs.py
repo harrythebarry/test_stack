@@ -16,22 +16,22 @@ class StackPack(BaseModel):
         content = f"{self.sandbox_init_cmd}{self.from_registry}".encode()
         return hashlib.sha256(content).hexdigest()[:12]
 
-
-
-# default_packs.py
-
-
 _SETUP_COMMON_CMD = """
-
+# Ensure that the frontend directory exists
 if [ ! -d 'frontend' ]; then 
-    cp -r /frontend .; 
+    cp -r /frontend .;
 fi
 
+# Verify that package.json is present and log the directory contents
 if [ -f /frontend/package.json ]; then
     cat /frontend/package.json
     ls -l /frontend
 fi
+
+# Change to the frontend directory
 cd /frontend
+
+# Git setup (if it's not already done)
 git config --global user.email 'bot@sparkstack.app'
 git config --global user.name 'Spark Stack Bot'
 git config --global init.defaultBranch main
@@ -42,6 +42,7 @@ if [ ! -d ".git" ]; then
     git commit -m 'Initial commit'
 fi
 
+# Create a .gitignore file to avoid unnecessary files in the git repo
 cat > .gitignore << 'EOF'
 node_modules/
 .config/
@@ -55,16 +56,33 @@ build/
 tmp/
 EOF
 
+# Ensure .env file exists in frontend
 if [ ! -f '/frontend/.env' ]; then
     touch /frontend/.env
 fi
-if ! grep -q "^IS_SPARK_STACK=" /frontend/.env; then
-    echo "IS_SPARK_STACK=true\n" >> /frontend/.env
+
+# Append backend URL if not already set
+if ! grep -q "^NEXT_PUBLIC_BACKEND_URL=" /frontend/.env; then
+    echo "NEXT_PUBLIC_BACKEND_URL=http://localhost:3000" >> /frontend/.env
 fi
+
+# Debug output for .env existence check
+echo "Checking if .env exists: /frontend/.env"
+ls -l /frontend/.env
+
+# Source the .env file to load environment variables
 set -a
-[ -f .env ] && . .env
+[ -f /frontend/.env ] && . /frontend/.env
 set +a
+
+# If the .env file cannot be sourced, log an error and exit
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to source the .env file."
+    exit 1
+fi
 """.strip()
+
+
 
 _START_NEXT_JS_CMD = f"""
 {_SETUP_COMMON_CMD}
@@ -140,6 +158,7 @@ set -a
 [ -f /app/.env ] && . /app/.env
 set +a
 """.strip()
+
 
 
 

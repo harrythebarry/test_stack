@@ -81,10 +81,19 @@ export default function WorkspacePage({ chatId }) {
           }
         };
 
-        // In the handleStatus callback, update to process new fields:
         const handleStatus = (data) => {
-          // (Assuming data.sandbox_statuses may be an object – you might choose the primary status from the backend service)
-          // For preview URL, use the dedicated frontend_tunnel if provided:
+          console.log("[FRONTEND] Received Status Update:", data);
+        
+          if (data.frontend_file_paths) {
+            console.log("[FRONTEND] Updating Frontend File Tree:", data.frontend_file_paths);
+            setFrontendFileTree(data.frontend_file_paths);
+          }
+        
+          if (data.backend_file_paths) {
+            console.log("[FRONTEND] Updating Backend File Tree:", data.backend_file_paths);
+            setBackendFileTree(data.backend_file_paths);
+          }
+        
           if (data.frontend_tunnel) {
             setProjectPreviewUrl(data.frontend_tunnel);
           } else if (data.tunnels) {
@@ -95,21 +104,8 @@ export default function WorkspacePage({ chatId }) {
               setProjectPreviewUrl(null);
             }
           }
-          if (data.backend_file_paths) {
-            setBackendFileTree(data.backend_file_paths);
-          }
-          if (data.frontend_file_paths) {
-            setFrontendFileTree(data.frontend_file_paths);
-          }
-          // Optionally update overall status – for simplicity, pick the backend status (if available)
-          if (data.sandbox_statuses && Object.values(data.sandbox_statuses).length > 0) {
-            // For example, pick the backend service status:
-            const backendStatus = data.sandbox_statuses[
-              Object.keys(data.sandbox_statuses)[0]
-            ];
-            setStatus(backendStatus);
-          }
         };
+        
 
         const handleChatUpdate = (data) => {
           setMessages((prev) => {
@@ -329,7 +325,6 @@ export default function WorkspacePage({ chatId }) {
             </Button>
           </div>
         )}
-
         {isMobile ? (
           // Mobile Layout: Stack vertically and show/hide based on isPreviewOpen
           <div className="flex-1">
@@ -348,6 +343,7 @@ export default function WorkspacePage({ chatId }) {
                 onReconnect={handleReconnect}
               />
             </div>
+         
             <div className={`h-full ${isPreviewOpen ? 'block' : 'hidden'}`}>
               <RightPanel
                 onSendMessage={handleSendMessage}

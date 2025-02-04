@@ -10,7 +10,7 @@ from docker.errors import NotFound
 from typing import AsyncGenerator, Union
 
 import requests
-from db.models import Project, Service
+from db.models import Project, Service, ServiceType
 from db.database import get_db
 from config import _int_env
 from sqlalchemy import inspect
@@ -110,9 +110,27 @@ class LocalDockerSandbox:
         return result.output.decode("utf-8", errors="ignore")
 
     async def get_file_paths(self):
-        out = await self.run_command("find /app -type f")
+        """
+        Retrieves the file paths within the service container.
+        Supports both backend (Python/FastAPI) and frontend (Next.js/React/Angular).
+        """
+        # Determine the correct working directory
+        if self.service.service_type == ServiceType.FRONTEND:
+            workdir = "/frontend"
+        else:
+            workdir = "/app"  # Default to backend directory
+
+        # Try to fetch the file paths
+        out = await self.run_command("find . -type f", workdir=workdir)
+        
+        # If there's an error, return an empty list and log the error
+        if "can't cd" in out or "No such file" in out:
+            print(f"[ERROR] Unable to access {workdir} in container: {out}")
+            return []
+
         lines = out.strip().split("\n")
 
+        # Ignore common unwanted directories
         ignore_list = [
             "node_modules",
             ".git",
@@ -120,32 +138,29 @@ class LocalDockerSandbox:
             "build",
             "tmp",
             "__pycache__",  # Python cache directories
-            ".venv",       # Common virtual environment name
-            "venv",        # Another common virtual environment name
-            "env",         # Yet another common virtual environment name
-            ".mypy_cache", # Mypy cache
-            ".pytest_cache", # pytest cache
-            ".cache",      # General cache directory
-            ".DS_Store",    # macOS specific
-            "Thumbs.db",    # Windows specific
+            ".venv",       # Virtual environments
+            "venv",
+            "env",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".cache",
+            ".DS_Store",   # macOS specific
+            "Thumbs.db",   # Windows specific
         ]
 
-        python_intermediate_extensions = [".pyc", ".pyd", ".pyo", ".pyi"] # Python intermediate files
+        # Extensions to ignore (Python intermediate files)
+        python_intermediate_extensions = [".pyc", ".pyd", ".pyo", ".pyi"]
 
         def should_ignore(file_path):
             if any(ig in file_path for ig in ignore_list):
                 return True
-
-            # Check for Python intermediate files based on extension
             _, ext = os.path.splitext(file_path)
             if ext in python_intermediate_extensions:
                 return True
-
             return False
 
         return sorted(
-            l for l in lines
-            if l.strip() and not should_ignore(l)
+            f"{workdir}{l[1:]}" for l in lines if l.strip() and not should_ignore(l)
         )
 
 

@@ -170,25 +170,39 @@ export function FilesTab({ fileTree: fileTreeProp, project }) {
 
   // Rename memoized fileTree to avoid conflict
   const memoizedFileTree = useMemo(() => {
-    const tree = {};
+    const tree = { backend: {}, frontend: {} };
+  
     fileTreeProp.forEach((path) => {
-      if (!path.startsWith('/app/')) return;
-
-      const relativePath = path.substring(5);
-      const parts = relativePath.split('/');
-
-      let current = tree;
-      parts.forEach((part, i) => {
-        if (i === parts.length - 1) {
-          current[part] = null;
-        } else {
-          current[part] = current[part] || {};
-          current = current[part];
-        }
-      });
+      if (path.startsWith('/app/')) {
+        const relativePath = path.substring(5); // Remove '/app' part
+        const parts = relativePath.split('/');
+        let current = tree.backend;  // Backend file path
+        parts.forEach((part, i) => {
+          if (i === parts.length - 1) {
+            current[part] = null;
+          } else {
+            current[part] = current[part] || {};
+            current = current[part];
+          }
+        });
+      } else if (path.startsWith('/frontend/')) {
+        const relativePath = path.substring(10); // Remove '/frontend' part
+        const parts = relativePath.split('/');
+        let current = tree.frontend; // Frontend file path
+        parts.forEach((part, i) => {
+          if (i === parts.length - 1) {
+            current[part] = null;
+          } else {
+            current[part] = current[part] || {};
+            current = current[part];
+          }
+        });
+      }
     });
+  
     return tree;
   }, [fileTreeProp]);
+  
 
   const handleFileSelect = async (filename) => {
     if (!filename || !team || !project) return;

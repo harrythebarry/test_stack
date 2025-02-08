@@ -206,6 +206,7 @@ class DiffApplier:
             return []
 
         # Wait for all pending tasks to complete
+        print(f"self._path_to_task: {self._path_to_task}")
         results = await asyncio.gather(
             *self._path_to_task.values(), return_exceptions=True
         )

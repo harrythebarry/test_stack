@@ -80,7 +80,7 @@ async def _pick_stack(db: Session, seed_prompt: str):
     stack_titles = [s.title for s in db.query(Stack).all()]
     
     # Define a default stack
-    default_stack = "Next.js Shadcn"
+    default_stack = ["Next.js Shadcn", "FastAPI"]
     
     # Use pick_stack to determine frontend and backend stacks
     frontend_title, backend_title = await pick_stack(seed_prompt, stack_titles, default=default_stack)
@@ -219,6 +219,7 @@ async def create_chat(
         name=chat_name,
         project_id=project.id,
         user_id=current_user.id,
+        
     )
     db.add(new_chat)
     db.commit()

@@ -16,36 +16,11 @@ from routers import (
     mocks,
     stripe,
 )
-from config import RUN_PERIODIC_CLEANUP
-
-from tasks.tasks import (
-    cleanup_inactive_project_managers,
-    maintain_prepared_sandboxes,
-    clean_up_project_resources,
-)
 
 
-async def periodic_task():
-    if not RUN_PERIODIC_CLEANUP:
-        return
-    db = next(get_db())
-    while True:
-        await asyncio.gather(
-            maintain_prepared_sandboxes(db),
-            clean_up_project_resources(db),
-            cleanup_inactive_project_managers(),
-        )
-        await asyncio.sleep(10)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    task = asyncio.create_task(periodic_task())
-    yield
-    task.cancel()
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 # Configure CORS
 app.add_middleware(

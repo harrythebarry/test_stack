@@ -77,7 +77,7 @@ Given the following changes, write a commit message for the changes.
     return re.sub(r"[^\w\s]+", "", msg)
 
 
-async def pick_stack(seed_prompt: str, stack_titles: List[str], default: str) -> Tuple[str, str]:
+async def pick_stack(seed_prompt: str, stack_titles: List[str], default: Tuple[str, str]) -> Tuple[str, str]:
     """
     Picks two stacks (frontend and backend) based on the seed_prompt.
     If unable to determine, defaults to the provided default stack for both frontend and backend.
@@ -129,12 +129,12 @@ If the user only wants one stack or the information is unclear, repeat the stack
         print(f"Error parsing stacks: {e}. Falling back to default stacks.")
     
     # Map the chosen stacks to actual stack titles from the database
-    def map_stack(title_candidate: str) -> str:
+    def map_stack(title_candidate: str, default_titles: str) -> str:
         stack_map = {t.lower().replace(" ", ""): t for t in stack_titles}
         norm = title_candidate.lower().replace(" ", "")
-        return stack_map.get(norm, default)
+        return stack_map.get(norm, default_titles)
     
-    frontend_mapped = map_stack(frontend)
-    backend_mapped = map_stack(backend)
+    frontend_mapped = map_stack(frontend, default[0])
+    backend_mapped = map_stack(backend, default[1])
     
     return (frontend_mapped, backend_mapped)

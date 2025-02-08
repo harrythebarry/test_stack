@@ -6,6 +6,7 @@ from typing import AsyncGenerator, List, Optional, Dict
 
 from pydantic import BaseModel
 
+from sandbox.local_docker_sandbox import LocalDockerSandbox
 from db.models import Project, Stack, User, UserType
 from sandbox.sandbox import BaseSandbox
 from agents.prompts import chat_complete, write_commit_message
@@ -262,7 +263,12 @@ def _append_last_user_message(messages: List[dict], text: str) -> None:
         # or if it's plain text, just concatenate
         last_user["content"] += "\n\n" + text
 
-
+class ResponseFormat(BaseModel):
+    file_path: str
+    content: str
+    
+class LLMResponseFormat(BaseModel):
+    response_format: List[ResponseFormat]
 ########################
 # Agent Class
 ########################
@@ -281,9 +287,9 @@ class Agent:
         (like self.backend_stack, self.frontend_stack).
         """
         self.project = project
-        self.stack = stack
         self.user = user
-        self.sandbox = None  # old single sandbox
+        self.stack = stack
+        self.sandbox = LocalDockerSandbox
         self.working_page = None
 
         # Multi-phase doc
@@ -452,20 +458,21 @@ class Agent:
             if doc_match:
                 self.backend_doc = doc_match.group(1).strip()
 
-        # 5) Commit changes
-        commit_msg = await write_commit_message(final_response_text[:1000])
-        await self.sandbox.commit_changes(commit_msg)
+ 
 
 
     ########################
     # Existing Single-Phase Step
     ########################
 
+        
+
     async def step(
         self,
         messages: List[ChatMessage],
-        sandbox_file_paths: Optional[List[str]] = None,
+        file_paths: Optional[List[str]] = None,
         sandbox_git_log: Optional[str] = None,
+        backend_doc: Optional[str] = None,
     ) -> AsyncGenerator[PartialChatMessage, None]:
         """
         The original single-phase approach (plan -> exec).
@@ -475,11 +482,8 @@ class Agent:
         # Provide an initial empty partial so the UI can mark 'assistant is responding'
         yield PartialChatMessage(role="assistant", delta_content="")
 
-        if sandbox_file_paths is not None:
-            files_text = "\n".join(sandbox_file_paths)
-        else:
-            files_text = "Sandbox is still booting..."
-
+        if file_paths is not None:
+            files_text = "\n".join(file_paths)
         if sandbox_git_log:
             git_log_text = await self._git_log_text(sandbox_git_log)
         else:
@@ -497,10 +501,13 @@ class Agent:
             git_log_text=git_log_text,
             stack_text=stack_text,
             files_text=files_text,
-            user_text=user_text
+            user_text=user_text,
+            extra_instructions=f"BACKEND DOC: {backend_doc}" if backend_doc else ""
         ):
             yield chunk
             plan_content += chunk.delta_thinking_content
+            
+        print(f"plan_content: {plan_content}")
 
         # 2) Exec
         system_prompt = SYSTEM_EXEC_PROMPT.format(
@@ -535,8 +542,7 @@ class Agent:
         tools = [build_run_command_tool(self.sandbox), build_navigate_to_tool(self)]
         model = LLM_PROVIDERS[MAIN_PROVIDER]()
 
-        from agents.diff import DiffApplier
-        diff_applier = DiffApplier(self.sandbox)
+
         final_response_text = ""
 
         async for chunk in model.chat_complete_with_tools(
@@ -544,7 +550,9 @@ class Agent:
             tools=tools,
             model=MAIN_MODEL,
             temperature=0.0,
+            response_format=LLMResponseFormat
         ):
+            diff_applier = DiffApplier(self.sandbox)
             if chunk["type"] == "content":
                 text_part = chunk["content"]
                 final_response_text += text_part
@@ -554,14 +562,16 @@ class Agent:
                 # e.g. run_command or navigate_to
                 yield PartialChatMessage(role="assistant", delta_content="\n\n")
 
+        print(f"final_response_text: {final_response_text}")
         # apply diffs
+        
         await diff_applier.apply()
-        commit_msg = await write_commit_message(final_response_text[:1000])
-        await self.sandbox.commit_changes(commit_msg)
+        
+        
 
 
     ########################
-    # Internal Plan + Helpers
+    # Internal Plan + Helpers 
     ########################
 
     async def _plan(

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, AsyncGenerator, Callable, Type
+from typing import Dict, Any, List, AsyncGenerator, Callable, Optional, Type
 from pydantic import BaseModel
 import json
 from openai import AsyncOpenAI
@@ -36,6 +36,12 @@ class AgentTool(BaseModel):
             },
         }
 
+class ResponseFormat(BaseModel):
+    file_path: str
+    content: str
+    
+class LLMResponseFormat(BaseModel):
+    response_format: ResponseFormat
 
 class LLMProvider(ABC):
     @abstractmethod
@@ -51,6 +57,7 @@ class LLMProvider(ABC):
         tools: List[AgentTool],
         model: str,
         temperature: float = 0.0,
+        response_format: Optional[LLMResponseFormat] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         pass
 
@@ -88,6 +95,7 @@ class OpenAILLMProvider(LLMProvider):
         tools: List[AgentTool],
         model: str,
         temperature: float = 0.0,
+        response_format: Optional[List[LLMResponseFormat]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         running = True
         oai_messages = messages.copy()

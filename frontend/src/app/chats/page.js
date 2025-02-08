@@ -41,6 +41,7 @@ export default function WorkspacePage({ chatId }) {
   }, [chatId]);
 
   const initializeWebSocket = async (wsProjectId) => {
+    console.log('initializeWebSocket', wsProjectId);
     if (webSocketRef.current) {
       webSocketRef.current.disconnect();
     }
@@ -51,22 +52,42 @@ export default function WorkspacePage({ chatId }) {
       try {
         await new Promise((resolve, reject) => {
           ws.connect();
-          ws.ws.onopen = () => resolve();
-          ws.ws.onerror = (error) => reject(error);
-          ws.ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            handleSocketMessage(data);
+          ws.ws.onopen = () => {
+            console.log("WebSocket connection opened successfully.");
+            resolve();
           };
+          ws.ws.onerror = (error) => {
+            console.error("WebSocket encountered an error:", error);
+            reject(new Error(`WebSocket error event: ${JSON.stringify(error)}`));
+          };
+
+          ws.ws.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              console.log("Received WebSocket message:", data);
+              handleSocketMessage(data);
+            } catch(e) {
+              console.error("Error parsing WebSocket message:", e);
+            }
+          };
+
           ws.ws.onclose = (e) => {
+            console.error("WebSocket connection closed:", e);
             setStatus('DISCONNECTED');
-            console.log('WebSocket connection closed', e.code, e.reason);
+            console.log(`Closing code: ${e.code}, Reason: ${e.reason}`);
             if ([1002, 1003].includes(e.code)) {
+              console.log("Reinitializing WebSocket due to close code", e.code);
               initializeWebSocket(chatId);
             }
           };
-          setTimeout(
-            () => reject(new Error('WebSocket connection timeout')),
-            5000
+
+        setTimeout(
+            () => {
+              const errorMsg = "WebSocket connection timeout after 5 seconds";
+              console.error(errorMsg);
+              reject(new Error(errorMsg));
+            },
+            10000
           );
         });
 
@@ -82,15 +103,12 @@ export default function WorkspacePage({ chatId }) {
         };
 
         const handleStatus = (data) => {
-          console.log("[FRONTEND] Received Status Update:", data);
         
           if (data.frontend_file_paths) {
-            console.log("[FRONTEND] Updating Frontend File Tree:", data.frontend_file_paths);
             setFrontendFileTree(data.frontend_file_paths);
           }
         
           if (data.backend_file_paths) {
-            console.log("[FRONTEND] Updating Backend File Tree:", data.backend_file_paths);
             setBackendFileTree(data.backend_file_paths);
           }
         
@@ -168,6 +186,7 @@ export default function WorkspacePage({ chatId }) {
 
         return ws;
       } catch (error) {
+        console.error("Error during WebSocket connection:", error);
         setStatus('DISCONNECTED');
       }
     };
@@ -245,6 +264,7 @@ export default function WorkspacePage({ chatId }) {
     (async () => {
       if (chatId !== 'new') {
         setStatus('DISCONNECTED');
+        console.log('getting chat of ', chatId);
         const chat = await api.getChat(chatId);
         setChatTitle(chat.name);
         const existingMessages =

@@ -1,5 +1,6 @@
 # sandbox/local_docker_sandbox.py
 
+import json
 import os
 import asyncio
 import base64
@@ -33,6 +34,36 @@ class LocalDockerSandbox:
         self.container_name = f"sparkstack_svc_{service.id}"
         self.container = None
         self.ready = False
+        
+    async def write_files_from_llm_output(self, llm_output: str):
+        """
+        Parses the LLM output and writes the content to the specified file paths inside the Docker container.
+        """
+        try:
+            # Parse the LLM output
+            file_changes = json.loads(llm_output)
+
+            for file_change in file_changes:
+                for file_path, content in file_change.items():
+                    # Write the content to the file inside the container
+                    await self.create_and_write_file(file_path, content)
+        except json.JSONDecodeError as e:
+            print(f"[ERROR] Failed to parse LLM output: {e}")
+        except Exception as e:
+            print(f"[ERROR] An error occurred while writing files: {e}")
+
+    async def create_and_write_file(self, path: str, content: str):
+        """
+        Create a file at the specified path and write the given content to it.
+        """
+        # Ensure the directory exists
+        dir_path = os.path.dirname(path)
+        await self.run_command(f"mkdir -p {dir_path}")
+
+        # Write the content to the file
+        encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+        cmd = f'echo "{encoded_content}" | base64 -d > {path}'
+        await self.run_command(cmd)
 
     async def create_or_get_container(self, image: str, start_command: str):
         """

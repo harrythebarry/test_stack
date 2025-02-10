@@ -99,8 +99,12 @@ npm run start -- --host 0.0.0.0 --port 3000
 
 
 _SETUP_COMMON_CMD_BACKEND = """
-cd /app
+# Ensure that the app directory exists
+if [ ! -d '/app' ]; then 
+    mkdir /app;
+fi
 
+cd /app
 git config --global user.email 'bot@sparkstack.app'
 git config --global user.name 'Spark Stack Bot'
 git config --global init.defaultBranch main
@@ -164,8 +168,7 @@ set +a
 
 _START_FASTAPI_CMD = f"""
 {_SETUP_COMMON_CMD_BACKEND}
-cd /app
-uvicorn main:app --host 0.0.0.0 --port 3000
+uvicorn main:app --host 0.0.0.0 --port 3000 --reload
 """.strip()
 
 _START_EXPRESS_CMD = f"""

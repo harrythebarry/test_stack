@@ -6,11 +6,10 @@ import asyncio
 import base64
 import time
 import docker
-import aiohttp
 from docker.errors import NotFound
 from typing import AsyncGenerator, Union
 
-import requests
+
 from db.models import Project, Service, ServiceType
 from db.database import get_db
 from config import _int_env
@@ -35,18 +34,30 @@ class LocalDockerSandbox:
         self.container = None
         self.ready = False
         
+
+
     async def write_files_from_llm_output(self, llm_output: str):
         """
         Parses the LLM output and writes the content to the specified file paths inside the Docker container.
+        The expected structure is a dictionary containing a "response" key that maps to a list of file changes.
+        Each file change item should be a dictionary with keys "file_path" and "file_content".
         """
         try:
-            # Parse the LLM output
+            # Parse the JSON string into a dictionary
             file_changes = json.loads(llm_output)
 
-            for file_change in file_changes:
-                for file_path, content in file_change.items():
-                    # Write the content to the file inside the container
-                    await self.create_and_write_file(file_path, content)
+            # Ensure 'file_changes' is a dictionary with a 'response' key
+            if isinstance(file_changes, dict) and "response" in file_changes:
+                # Iterate over the list of file data dictionaries
+                for file_data in file_changes["response"]:
+                    file_path = file_data.get("file_path")
+                    file_content = file_data.get("file_content")
+                    if file_path and file_content:
+                        await self.create_and_write_file(file_path, file_content)
+                    else:
+                        print("[WARNING] Missing 'file_path' or 'file_content' in:", file_data)
+            else:
+                print("[WARNING] 'file_changes' is not structured as expected:", file_changes)
         except json.JSONDecodeError as e:
             print(f"[ERROR] Failed to parse LLM output: {e}")
         except Exception as e:
@@ -54,7 +65,7 @@ class LocalDockerSandbox:
 
     async def create_and_write_file(self, path: str, content: str):
         """
-        Create a file at the specified path and write the given content to it.
+        Creates a file at the specified path and writes the given content to it.
         """
         # Ensure the directory exists
         dir_path = os.path.dirname(path)
@@ -64,6 +75,7 @@ class LocalDockerSandbox:
         encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
         cmd = f'echo "{encoded_content}" | base64 -d > {path}'
         await self.run_command(cmd)
+
 
     async def create_or_get_container(self, image: str, start_command: str):
         """
@@ -136,8 +148,14 @@ class LocalDockerSandbox:
     async def run_command(self, command: str, workdir=None) -> str:
         if not self.container:
             return "Container not started yet."
-        final_cmd = f"cd {workdir or '/app'} && {command}"
+        if self.service.service_type == ServiceType.FRONTEND:
+            workdir = "/frontend"
+        else:
+            workdir = "/app"
+        final_cmd = f"cd {workdir} && {command}"
+        print("final_cmd",final_cmd)
         result = self.container.exec_run(f"sh -c '{final_cmd}'")
+        print("result",result)
         return result.output.decode("utf-8", errors="ignore")
 
     async def get_file_paths(self):

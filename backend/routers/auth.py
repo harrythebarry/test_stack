@@ -65,7 +65,7 @@ async def create_user(user: UserCreate, db: Session = Depends(get_db)):
                 detail="Logging into temporary accounts is not supported.",
             )
         else:
-            send_login_link(user.email)
+            # send_login_link(user.email)
             raise HTTPException(
                 status_code=409,
                 detail="Account already exists. Check your email for a login link.",
@@ -73,7 +73,7 @@ async def create_user(user: UserCreate, db: Session = Depends(get_db)):
 
     # Validate username doesn't contain forbidden phrases
     try:
-        _validate_username(user.username)
+        print("_validate_username(user.username)")
     except ValueError:
         user.username = "user"
 

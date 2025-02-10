@@ -1,3 +1,5 @@
+import json
+import uuid
 from fastapi import APIRouter, WebSocket, WebSocketException, WebSocketDisconnect
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
@@ -20,6 +22,7 @@ from db.database import get_db
 from db.models import Project, Message as DbChatMessage, Stack, User, Chat, Service, ServiceType
 from db.queries import get_chat_for_user
 from agents.prompts import write_commit_message
+from graphAgent.app import agent_orchestrator
 from routers.auth import get_current_user_from_token
 from sqlalchemy.orm import Session
  
@@ -124,7 +127,7 @@ class ProjectManager:
         # Mapping from service_id to SandboxStatus
         self.sandbox_statuses: Dict[int, SandboxStatus] = {}
         # Mapping from service_id to BaseSandbox
-        self.sandboxes: Dict[int, BaseSandbox] = {}
+        self.sandboxes: Dict[int, LocalDockerSandbox] = {}
  
         self.tunnels: Dict[int, str] = {}
         self.backend_file_paths: Optional[List[str]] = None
@@ -316,16 +319,16 @@ class ProjectManager:
         if len(self.chat_sockets[chat_id]) == 0:
             print(f"All websockets removed for chat {chat_id}. Clearing data.")
             del self.chat_sockets[chat_id]
-            del self.chat_agents[chat_id]
+            del self.chat_agents[chat_id] 
             del self.chat_users[chat_id]
  
-    async def on_chat_message(self, chat_id: int, message: ChatMessage):
+    async def on_chat_message(self,project: Project, chat_id: int, message: ChatMessage):
         print(f"Received message from chat {chat_id}: {message.content}.")
         self.last_activity = datetime.datetime.now()
         async with self.lock:
-            await self._handle_chat_message(chat_id, message)
+            await self._handle_chat_message(project, chat_id, message)
  
-    async def _handle_chat_message(self, chat_id: int, message: ChatMessage):
+    async def _handle_chat_message(self, project: Project, chat_id: int, message: ChatMessage):
         """
         Actually handle the user's chat message: store to DB, run the agent, produce diffs, etc.
         """
@@ -410,64 +413,48 @@ class ProjectManager:
             .all()
         )
         all_messages = [_db_message_to_message(m) for m in db_messages]
- 
-        backend_content = ""
-        frontend_content = ""
-        
-        
 
         # completion call for backend agent
 
+        thread=str(uuid.uuid4())
+        be_port=backend_service.docker_port
+        fe_port=frontend_service.docker_port
         
-        async for partial_chunk in backend_agent.step(
-            messages=all_messages,
-            file_paths=self.backend_file_paths, 
-            sandbox_git_log="your_git_log_here",  # If you have one; otherwise, leave it as None.
-        ):
-            backend_content += partial_chunk.delta_content
-            # (Optionally, if you need to feed diffs manually, do so here—but typically the agent already calls ingest.)
-            await self.emit_chat(
-                chat_id,
-                ChatChunkResponse(
-                    role="assistant",
-                    content=partial_chunk.delta_content,
-                    thinking_content=partial_chunk.delta_thinking_content
-                ),
-            )
+        total_content=agent_orchestrator(message.content,thread,be_port,fe_port)
+        
+            
+        print("total_content",total_content)
+        #TODO: THE total content is an array containing two objects, each with a 'response' key mapping to an array of file objects, where each file object has 'file_path' and 'file_content' keys. now each object should be convertered into a json string and then write into the docker container.
+        llm_output_str_backend = json.dumps(total_content[0])
+        llm_output_str_frontend = json.dumps(total_content[1])
+        
+        # Convert the total_content (a list of responses) to a JSON string.
+        # Call the asynchronous method to write the files into the Docker container.
+        print("writing files for backend")
+        await backend_sandbox.write_files_from_llm_output(llm_output_str_backend)
+        print("writing files for frontend")
+        await frontend_sandbox.write_files_from_llm_output(llm_output_str_frontend)
+        print("writing files finished")
+        
 
-        frontend_agent.backend_doc = backend_content
-        
-        async for partial_chunk in frontend_agent.step(
-            messages=all_messages,
-            file_paths=self.frontend_file_paths,
-            sandbox_git_log="your_git_log_here",  # If you have one; otherwise, leave it as None.
-        ):
-            frontend_content += partial_chunk.delta_content   
-            
-            await self.emit_chat(
-                chat_id,
-                ChatChunkResponse(
-                    role="assistant",
-                    content=partial_chunk.delta_content,
-                    thinking_content=partial_chunk.delta_thinking_content
-                ),
-            )
-            
-        
-        total_content = frontend_content + backend_content
-            
-        
+        # print("running command for frontend")
+        # await frontend_sandbox.run_command("npm run dev")
+        # print("command running finished")
             
         #TODO : assistant message should be sent to both frontend and backend
-        assistant_msg = ChatMessage(role="assistant", content=total_content)
+        assistant_msg = ChatMessage(role="assistant", content="response from backend and frontend")
         db_assistant_msg = _message_to_db_message(assistant_msg, chat_id)
  
         print(f"Saving assistant message for chat {chat_id}.")
         self.db.add(db_assistant_msg)
         self.db.commit()
+        self.db.refresh(db_assistant_msg)       
         
- 
 
+        #TODO : update the backend_file_paths and frontend_File_paths from teh sandbox container.         
+        self.backend_file_paths = await backend_sandbox.get_file_paths()
+        self.frontend_file_paths = await frontend_sandbox.get_file_paths()
+        
                 
  
         print(f"Finalizing project status for chat {chat_id}.")
@@ -566,7 +553,7 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: int):
             data = ChatMessage.model_validate_json(raw_data)
             # Schedule the agent to handle the message
 
-            create_task(pm.on_chat_message(chat_id, data))
+            create_task(pm.on_chat_message(pm, chat_id, data))
 #  
     except WebSocketDisconnect:
         pass
